@@ -14,17 +14,20 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.example.eventlyapp.model.NoteData
 import com.example.eventlyapp.model.SubTaskData
 import com.example.eventlyapp.model.TaskData
+import com.example.eventlyapp.ui.news.NewsFeedScreen
+import com.example.eventlyapp.ui.news.NewsViewModel
 
 private enum class MainTab(val title: String) {
+    NEWS("Новости"),
     HOME("Главная"),
     TASKS("Задачи"),
     NOTES("Записи")
@@ -35,6 +38,7 @@ private enum class MainTab(val title: String) {
 fun MainTabsScreen(
     tasks: List<TaskData>,
     notes: List<NoteData>,
+    newsViewModel: NewsViewModel,
     sortByPriority: Boolean,
     onSortByPriorityChange: (Boolean) -> Unit,
     onAddTaskClick: () -> Unit,
@@ -42,7 +46,7 @@ fun MainTabsScreen(
     onTaskCheckedChange: (TaskData, Boolean) -> Unit,
     onSubTaskCheckedChange: (TaskData, SubTaskData, Boolean) -> Unit
 ) {
-    var currentTab by remember { mutableStateOf(MainTab.HOME) }
+    var currentTab by remember { mutableStateOf(MainTab.NEWS) }
 
     Scaffold(
         containerColor = Color(0xFFCCCCCC),
@@ -75,7 +79,7 @@ fun MainTabsScreen(
                 .padding(paddingValues)
         ) {
             TabRow(selectedTabIndex = currentTab.ordinal) {
-                MainTab.values().forEach { tab ->
+                MainTab.entries.forEach { tab ->
                     Tab(
                         selected = tab == currentTab,
                         onClick = { currentTab = tab },
@@ -85,6 +89,11 @@ fun MainTabsScreen(
             }
 
             when (currentTab) {
+                MainTab.NEWS -> NewsFeedScreen(
+                    viewModel = newsViewModel,
+                    modifier = Modifier.fillMaxSize()
+                )
+
                 MainTab.HOME -> HomeScreen(
                     tasks = tasks,
                     notes = notes,
