@@ -8,11 +8,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.eventlyapp.data.NewsRepository
 import com.example.eventlyapp.id.IdGenerator
 import com.example.eventlyapp.model.NoteData
 import com.example.eventlyapp.model.SubTaskData
 import com.example.eventlyapp.model.TaskData
-import com.example.eventlyapp.model.TaskPriority
+import com.example.eventlyapp.ui.news.NewsViewModel
 import com.example.eventlyapp.ui.theme.EventLyAppTheme
 
 private enum class Screen {
@@ -27,6 +29,10 @@ fun EventlyAppRoot() {
     val tasks: SnapshotStateList<TaskData> = remember { mutableStateListOf() }
     val notes: SnapshotStateList<NoteData> = remember { mutableStateListOf() }
     var sortByPriority by remember { mutableStateOf(false) }
+    val repository = remember { NewsRepository.create() }
+    val newsViewModel: NewsViewModel = viewModel(
+        factory = NewsViewModel.factory(repository)
+    )
 
     when (currentScreen) {
         Screen.MAIN_TABS -> {
@@ -43,6 +49,7 @@ fun EventlyAppRoot() {
             MainTabsScreen(
                 tasks = visibleTasks,
                 notes = notes,
+                newsViewModel = newsViewModel,
                 sortByPriority = sortByPriority,
                 onSortByPriorityChange = { value -> sortByPriority = value },
                 onAddTaskClick = { currentScreen = Screen.CREATE_TASK },
