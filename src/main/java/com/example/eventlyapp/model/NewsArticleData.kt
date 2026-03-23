@@ -9,5 +9,5 @@ data class NewsArticleData(
     val abstractText: String,
     val source: String,
     val publishedAt: String,
-    val imageUrl: String?
+    val imagePath: String?
 ) : HasId
