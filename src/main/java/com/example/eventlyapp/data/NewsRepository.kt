@@ -1,65 +1,82 @@
 package com.example.eventlyapp.data
 
-import android.util.Log
+import android.content.Context
 import com.example.eventlyapp.BuildConfig
+import com.example.eventlyapp.data.cache.CachedNewsSnapshot
+import com.example.eventlyapp.data.cache.NewsCacheDatabaseHelper
+import com.example.eventlyapp.data.cache.NewsImageCacheService
+import com.example.eventlyapp.data.cache.NewsMetadataCacheService
+import com.example.eventlyapp.data.remote.NewsRemoteDataSource
 import com.example.eventlyapp.id.Id
 import com.example.eventlyapp.model.NewsArticleData
 import com.example.eventlyapp.network.DebugApiService
 import com.example.eventlyapp.network.NytTimesWireService
-import com.example.eventlyapp.network.dto.DebugPostRequest
-import com.example.eventlyapp.network.dto.NytMultimediaDto
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
 class NewsRepository(
-    private val nytTimesWireService: NytTimesWireService,
-    private val debugApiService: DebugApiService,
+    private val remoteDataSource: NewsRemoteDataSource,
+    private val metadataCacheService: NewsMetadataCacheService,
+    private val imageCacheService: NewsImageCacheService,
     private val nytApiKey: String
 ) {
 
-    suspend fun fetchNews(): Result<List<NewsArticleData>> {
+    suspend fun loadCachedNews(): CachedNewsSnapshot? = withContext(Dispatchers.IO) {
+        val snapshot = metadataCacheService.readSnapshot() ?: return@withContext null
+
+        if (isCacheExpired(snapshot.updatedAtMillis)) {
+            metadataCacheService.clearAll()
+            imageCacheService.clearAllImages()
+            return@withContext null
+        }
+
+        val cachedArticles = snapshot.articles.map { article ->
+            article.copy(imagePath = imageCacheService.sanitizeImagePath(article.imagePath))
+        }
+
+        CachedNewsSnapshot(
+            articles = cachedArticles,
+            updatedAtMillis = snapshot.updatedAtMillis
+        )
+    }
+
+    suspend fun refreshNews(): Result<CachedNewsSnapshot> {
         if (nytApiKey.isBlank()) {
             return Result.failure(IllegalStateException("Добавь nyt.api.key в local.properties"))
         }
 
         return runCatching {
-            val response = nytTimesWireService.getNews(
-                source = "all",
-                section = "all",
-                apiKey = nytApiKey
-            )
-
-            response.results.orEmpty().mapIndexed { index, item ->
+            val remoteArticles = remoteDataSource.fetchArticles(nytApiKey)
+            val articles = remoteArticles.mapIndexed { index, article ->
                 NewsArticleData(
-                    id = Id("news-$index-${item.publishedDate.orEmpty()}"),
-                    title = item.title.orEmpty().ifBlank { "Без заголовка" },
-                    abstractText = item.abstractText.orEmpty().ifBlank { "Описание отсутствует" },
-                    source = item.source.orEmpty().ifBlank { "NYTimes" },
-                    publishedAt = item.publishedDate.orEmpty(),
-                    imageUrl = item.multimedia.selectPreviewUrl()
+                    id = Id("news-$index-${article.publishedAt}"),
+                    title = article.title,
+                    abstractText = article.abstractText,
+                    source = article.source,
+                    publishedAt = article.publishedAt,
+                    imagePath = imageCacheService.cacheImage(article.imageUrl)
                 )
             }
-        }
-    }
 
-    suspend fun sendDebugRequest(newsCount: Int) {
-        runCatching {
-            debugApiService.sendDebugEvent(
-                request = DebugPostRequest(
-                    title = "news-refresh",
-                    body = "Loaded $newsCount items from NYT TimesWire",
-                    userId = 3
-                )
+            val snapshot = CachedNewsSnapshot(
+                articles = articles,
+                updatedAtMillis = System.currentTimeMillis()
             )
-        }.onSuccess { response ->
-            Log.d("NewsRepository", "Debug POST success: id=${response.id}, title=${response.title}")
-        }.onFailure { throwable ->
-            Log.d("NewsRepository", "Debug POST failed: ${throwable.message}")
+
+            withContext(Dispatchers.IO) {
+                metadataCacheService.replaceArticles(snapshot)
+            }
+            imageCacheService.clearUnusedImages(articles.mapNotNull { article -> article.imagePath }.toSet())
+            remoteDataSource.sendDebugRequest(articles.size)
+            snapshot
         }
     }
 
@@ -89,8 +106,20 @@ class NewsRepository(
         return rawDate
     }
 
+    fun formatCacheTimestamp(timestampMillis: Long): String {
+        return SimpleDateFormat("dd MMM yyyy, HH:mm:ss", Locale.getDefault()).format(Date(timestampMillis))
+    }
+
+    private fun isCacheExpired(updatedAtMillis: Long): Boolean {
+        return System.currentTimeMillis() - updatedAtMillis > CACHE_RETENTION_MILLIS
+    }
+
     companion object {
-        fun create(): NewsRepository {
+        // We always request fresh data on screen open, but keep the latest successful
+        // snapshot for up to 24 hours so the feed can open without blocking on the network.
+        private const val CACHE_RETENTION_MILLIS = 24L * 60L * 60L * 1000L
+
+        fun create(context: Context): NewsRepository {
             val logging = HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BASIC
             }
@@ -112,25 +141,19 @@ class NewsRepository(
                 .build()
 
             return NewsRepository(
-                nytTimesWireService = nytRetrofit.create(NytTimesWireService::class.java),
-                debugApiService = debugRetrofit.create(DebugApiService::class.java),
+                remoteDataSource = NewsRemoteDataSource(
+                    nytTimesWireService = nytRetrofit.create(NytTimesWireService::class.java),
+                    debugApiService = debugRetrofit.create(DebugApiService::class.java)
+                ),
+                metadataCacheService = NewsMetadataCacheService(
+                    dbHelper = NewsCacheDatabaseHelper(context.applicationContext)
+                ),
+                imageCacheService = NewsImageCacheService(
+                    context = context.applicationContext,
+                    okHttpClient = client
+                ),
                 nytApiKey = BuildConfig.NYT_API_KEY
             )
         }
     }
-}
-
-private fun List<NytMultimediaDto>?.selectPreviewUrl(): String? {
-    val preferredFormats = listOf("mediumThreeByTwo210", "mediumThreeByTwo440", "Normal")
-
-    preferredFormats.forEach { preferredFormat ->
-        val candidate = this.orEmpty().firstOrNull { item ->
-            item.format == preferredFormat && item.url.isNullOrBlank().not()
-        }
-        if (candidate != null && candidate.url.isNullOrBlank().not()) {
-            return candidate.url
-        }
-    }
-
-    return this.orEmpty().firstOrNull { item -> item.url.isNullOrBlank().not() }?.url
 }

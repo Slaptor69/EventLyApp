@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.eventlyapp.data.NewsRepository
+import com.example.eventlyapp.data.cache.CachedNewsSnapshot
 import com.example.eventlyapp.model.NewsFeedState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -13,9 +14,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 class NewsViewModel(
     private val repository: NewsRepository
@@ -28,8 +26,14 @@ class NewsViewModel(
     private var autoRefreshJob: Job? = null
 
     init {
-        refresh(showLoader = true)
-        startAutoRefresh()
+        viewModelScope.launch {
+            val cachedSnapshot = repository.loadCachedNews()
+            if (cachedSnapshot != null) {
+                showCachedSnapshot(cachedSnapshot)
+            }
+            refresh(showLoader = cachedSnapshot == null)
+            startAutoRefresh()
+        }
     }
 
     fun refresh(showLoader: Boolean) {
@@ -39,45 +43,38 @@ class NewsViewModel(
         }
 
         refreshJob = viewModelScope.launch {
-            if (showLoader) {
-                _state.update { current ->
-                    current.copy(isLoading = true, errorMessage = null)
-                }
-            } else {
-                _state.update { current ->
-                    current.copy(errorMessage = null)
-                }
+            _state.update { current ->
+                current.copy(
+                    isLoading = showLoader && current.articles.isEmpty(),
+                    isRefreshing = current.articles.isEmpty().not(),
+                    errorMessage = null
+                )
             }
 
-            repository.fetchNews()
-                .onSuccess { articles ->
+            repository.refreshNews()
+                .onSuccess { snapshot ->
                     _state.update { current ->
                         current.copy(
                             isLoading = false,
-                            articles = articles,
+                            isRefreshing = false,
+                            articles = snapshot.articles,
                             errorMessage = null,
-                            lastUpdatedLabel = formatLastUpdated()
+                            lastUpdatedLabel = repository.formatCacheTimestamp(snapshot.updatedAtMillis),
+                            sourceLabel = "Источник: сеть, кэш обновлён"
                         )
                     }
-                    repository.sendDebugRequest(articles.size)
                 }
                 .onFailure { throwable ->
+                    val hasArticles = _state.value.articles.isEmpty().not()
                     _state.update { current ->
                         current.copy(
                             isLoading = false,
-                            errorMessage = throwable.message ?: "Не удалось загрузить новости"
+                            isRefreshing = false,
+                            errorMessage = throwable.message ?: "Не удалось загрузить новости",
+                            sourceLabel = if (hasArticles) "Источник: локальный кэш" else current.sourceLabel
                         )
                     }
                 }
-        }
-    }
-
-    private fun startAutoRefresh() {
-        autoRefreshJob = viewModelScope.launch {
-            while (isActive) {
-                delay(120_000)
-                refresh(showLoader = false)
-            }
         }
     }
 
@@ -89,8 +86,26 @@ class NewsViewModel(
         super.onCleared()
     }
 
-    private fun formatLastUpdated(): String {
-        return SimpleDateFormat("dd MMM yyyy, HH:mm:ss", Locale.getDefault()).format(Date())
+    private fun showCachedSnapshot(snapshot: CachedNewsSnapshot) {
+        _state.update { current ->
+            current.copy(
+                isLoading = false,
+                isRefreshing = false,
+                articles = snapshot.articles,
+                errorMessage = null,
+                lastUpdatedLabel = repository.formatCacheTimestamp(snapshot.updatedAtMillis),
+                sourceLabel = "Источник: локальный кэш"
+            )
+        }
+    }
+
+    private fun startAutoRefresh() {
+        autoRefreshJob = viewModelScope.launch {
+            while (isActive) {
+                delay(120_000)
+                refresh(showLoader = false)
+            }
+        }
     }
 
     companion object {

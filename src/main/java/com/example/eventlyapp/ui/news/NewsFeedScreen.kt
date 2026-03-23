@@ -6,9 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,10 +29,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import com.example.eventlyapp.model.NewsArticleData
+import java.io.File
 
 @Composable
 fun NewsFeedScreen(
@@ -61,24 +65,43 @@ fun NewsFeedScreen(
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Top
                     ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             Text(
                                 text = "Лента новостей",
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                text = state.lastUpdatedLabel?.let { timestamp -> "Последнее обновление: $timestamp" }
-                                    ?: "Ожидание первого обновления",
+                                text = state.sourceLabel ?: "Ожидание первого обновления",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Text(
+                                text = state.lastUpdatedLabel?.let { timestamp -> "Последнее сохранение кэша: $timestamp" }
+                                    ?: "Кэш ещё не сформирован",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (state.isRefreshing) {
+                                Text(
+                                    text = "Обновляю новости в фоне...",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
+                        Spacer(modifier = Modifier.width(8.dp))
                         TextButton(onClick = { viewModel.refresh(showLoader = false) }) {
-                            Text("Обновить")
+                            Text(
+                                text = "Обновить",
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
                         }
                     }
                 }
@@ -169,7 +192,7 @@ private fun NewsArticleCard(
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            NewsPreviewImage(imageUrl = article.imageUrl)
+            NewsPreviewImage(imagePath = article.imagePath)
             Text(
                 text = article.title,
                 style = MaterialTheme.typography.titleMedium,
@@ -200,15 +223,21 @@ private fun NewsArticleCard(
 
 @Composable
 private fun NewsPreviewImage(
-    imageUrl: String?
+    imagePath: String?
 ) {
-    if (imageUrl.isNullOrBlank()) {
+    if (imagePath.isNullOrBlank()) {
         NewsImagePlaceholder(label = "Нет изображения")
         return
     }
 
+    val imageFile = File(imagePath)
+    if (imageFile.exists().not()) {
+        NewsImagePlaceholder(label = "Изображение недоступно")
+        return
+    }
+
     SubcomposeAsyncImage(
-        model = imageUrl,
+        model = imageFile,
         contentDescription = "Превью новости",
         modifier = Modifier
             .fillMaxWidth()
