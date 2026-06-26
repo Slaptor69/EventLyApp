@@ -1,77 +1,64 @@
 package com.example.eventlyapp.features.news.data.cache
 
-import android.content.ContentValues
 import com.example.eventlyapp.core.id.Id
 import com.example.eventlyapp.features.news.domain.model.NewsArticleData
 import javax.inject.Inject
 
 class NewsMetadataCacheService @Inject constructor(
-    private val dbHelper: NewsCacheDatabaseHelper
+    private val newsCacheDao: NewsCacheDao
 ) {
 
-    fun readSnapshot(): CachedNewsSnapshot? {
-        val db = dbHelper.readableDatabase
-        db.query(
-            NewsCacheDatabaseHelper.TABLE_NEWS_CACHE,
-            null,
-            null,
-            null,
-            null,
-            null,
-            "${NewsCacheDatabaseHelper.COLUMN_POSITION} ASC"
-        ).use { cursor ->
-            if (cursor.count == 0) {
-                return null
-            }
+    suspend fun readSnapshot(): CachedNewsSnapshot? {
+        val cachedArticles = newsCacheDao.getArticles()
+        if (cachedArticles.isEmpty()) {
+            return null
+        }
 
-            val articles = mutableListOf<NewsArticleData>()
-            var updatedAtMillis = 0L
+        return CachedNewsSnapshot(
+            articles = cachedArticles.map { article -> article.toNewsArticleData() },
+            updatedAtMillis = cachedArticles.first().updatedAtMillis
+        )
+    }
 
-            while (cursor.moveToNext()) {
-                val article = NewsArticleData(
-                    id = Id(cursor.getString(cursor.getColumnIndexOrThrow(NewsCacheDatabaseHelper.COLUMN_ARTICLE_ID))),
-                    title = cursor.getString(cursor.getColumnIndexOrThrow(NewsCacheDatabaseHelper.COLUMN_TITLE)),
-                    abstractText = cursor.getString(cursor.getColumnIndexOrThrow(NewsCacheDatabaseHelper.COLUMN_ABSTRACT)),
-                    source = cursor.getString(cursor.getColumnIndexOrThrow(NewsCacheDatabaseHelper.COLUMN_SOURCE)),
-                    publishedAt = cursor.getString(cursor.getColumnIndexOrThrow(NewsCacheDatabaseHelper.COLUMN_PUBLISHED_AT)),
-                    imagePath = cursor.getString(cursor.getColumnIndexOrThrow(NewsCacheDatabaseHelper.COLUMN_IMAGE_PATH))
+    suspend fun replaceArticles(snapshot: CachedNewsSnapshot) {
+        newsCacheDao.replaceArticles(
+            snapshot.articles.mapIndexed { index, article ->
+                article.toNewsCacheEntity(
+                    position = index,
+                    updatedAtMillis = snapshot.updatedAtMillis
                 )
-                articles.add(article)
-                updatedAtMillis = cursor.getLong(cursor.getColumnIndexOrThrow(NewsCacheDatabaseHelper.COLUMN_UPDATED_AT_MS))
             }
-
-            return CachedNewsSnapshot(
-                articles = articles,
-                updatedAtMillis = updatedAtMillis
-            )
-        }
+        )
     }
 
-    fun replaceArticles(snapshot: CachedNewsSnapshot) {
-        val db = dbHelper.writableDatabase
-        db.beginTransaction()
-        try {
-            db.delete(NewsCacheDatabaseHelper.TABLE_NEWS_CACHE, null, null)
-            snapshot.articles.forEachIndexed { index, article ->
-                val values = ContentValues().apply {
-                    put(NewsCacheDatabaseHelper.COLUMN_ARTICLE_ID, article.id.value)
-                    put(NewsCacheDatabaseHelper.COLUMN_POSITION, index)
-                    put(NewsCacheDatabaseHelper.COLUMN_TITLE, article.title)
-                    put(NewsCacheDatabaseHelper.COLUMN_ABSTRACT, article.abstractText)
-                    put(NewsCacheDatabaseHelper.COLUMN_SOURCE, article.source)
-                    put(NewsCacheDatabaseHelper.COLUMN_PUBLISHED_AT, article.publishedAt)
-                    put(NewsCacheDatabaseHelper.COLUMN_IMAGE_PATH, article.imagePath)
-                    put(NewsCacheDatabaseHelper.COLUMN_UPDATED_AT_MS, snapshot.updatedAtMillis)
-                }
-                db.insert(NewsCacheDatabaseHelper.TABLE_NEWS_CACHE, null, values)
-            }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
-        }
+    suspend fun clearAll() {
+        newsCacheDao.clearAll()
     }
+}
 
-    fun clearAll() {
-        dbHelper.writableDatabase.delete(NewsCacheDatabaseHelper.TABLE_NEWS_CACHE, null, null)
-    }
+private fun NewsCacheEntity.toNewsArticleData(): NewsArticleData {
+    return NewsArticleData(
+        id = Id(articleId),
+        title = title,
+        abstractText = abstractText,
+        source = source,
+        publishedAt = publishedAt,
+        imagePath = imagePath
+    )
+}
+
+private fun NewsArticleData.toNewsCacheEntity(
+    position: Int,
+    updatedAtMillis: Long
+): NewsCacheEntity {
+    return NewsCacheEntity(
+        articleId = id.value,
+        position = position,
+        title = title,
+        abstractText = abstractText,
+        source = source,
+        publishedAt = publishedAt,
+        imagePath = imagePath,
+        updatedAtMillis = updatedAtMillis
+    )
 }

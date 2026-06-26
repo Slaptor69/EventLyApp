@@ -11,8 +11,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,10 +24,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.eventlyapp.features.settings.domain.SettingsEffect
 import com.example.eventlyapp.features.settings.domain.SettingsMsg
 import com.example.eventlyapp.features.settings.domain.model.ThemePreference
 
@@ -45,10 +52,26 @@ fun SettingsScreen(
 ) {
     val state by viewModel.state.collectAsState()
     var showThemeDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                is SettingsEffect.ThemeApplied -> Unit
+                SettingsEffect.NewsCacheCleared -> {
+                    snackbarHostState.showSnackbar("Кэш новостей очищен")
+                }
+                is SettingsEffect.NewsCacheClearFailed -> {
+                    snackbarHostState.showSnackbar(effect.message)
+                }
+            }
+        }
+    }
 
     Scaffold(
         modifier = modifier,
         containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Настройки") },
@@ -81,6 +104,17 @@ fun SettingsScreen(
                 },
                 onClick = { showThemeDialog = true }
             )
+            SettingsItem(
+                title = "Кэш новостей",
+                subtitle = "Очистить сохранённые новости и изображения",
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null
+                    )
+                },
+                onClick = { viewModel.accept(SettingsMsg.ClearNewsCacheClicked) }
+            )
         }
     }
 
@@ -92,6 +126,14 @@ fun SettingsScreen(
                 showThemeDialog = false
             },
             onDismissRequest = { showThemeDialog = false }
+        )
+    }
+
+    if (state.showClearNewsCacheDialog) {
+        ClearNewsCacheDialog(
+            isClearing = state.isClearingNewsCache,
+            onConfirmClick = { viewModel.accept(SettingsMsg.ClearNewsCacheConfirmed) },
+            onDismissRequest = { viewModel.accept(SettingsMsg.ClearNewsCacheDismissed) }
         )
     }
 }
@@ -124,6 +166,46 @@ private fun SettingsItem(
             }
         )
     }
+}
+
+@Composable
+private fun ClearNewsCacheDialog(
+    isClearing: Boolean,
+    onConfirmClick: () -> Unit,
+    onDismissRequest: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = {
+            if (isClearing.not()) {
+                onDismissRequest()
+            }
+        },
+        title = { Text("Очистить кэш новостей?") },
+        text = { Text("Сохранённые новости и изображения будут удалены с устройства.") },
+        confirmButton = {
+            Button(
+                onClick = onConfirmClick,
+                enabled = isClearing.not(),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError
+                )
+            ) {
+                Text("Удалить")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismissRequest,
+                enabled = isClearing.not(),
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            ) {
+                Text("Отмена")
+            }
+        }
+    )
 }
 
 @Composable

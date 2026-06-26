@@ -25,4 +25,41 @@ class SettingsReducerTest {
             update.effects
         )
     }
+
+    @Test
+    fun clearNewsCacheClicked_showsConfirmationDialog() {
+        val update = reducer.update(
+            state = SettingsState(),
+            msg = SettingsMsg.ClearNewsCacheClicked
+        )
+
+        assertEquals(true, update.state.showClearNewsCacheDialog)
+        assertEquals(emptyList<SettingsCommand>(), update.commands)
+        assertEquals(emptyList<SettingsEffect>(), update.effects)
+    }
+
+    @Test
+    fun clearNewsCacheConfirmed_hidesDialogAndRequestsCacheCleanup() {
+        val update = reducer.update(
+            state = SettingsState(showClearNewsCacheDialog = true),
+            msg = SettingsMsg.ClearNewsCacheConfirmed
+        )
+
+        assertEquals(false, update.state.showClearNewsCacheDialog)
+        assertEquals(true, update.state.isClearingNewsCache)
+        assertEquals(listOf(SettingsCommand.ClearNewsCache), update.commands)
+        assertEquals(emptyList<SettingsEffect>(), update.effects)
+    }
+
+    @Test
+    fun newsCacheCleared_stopsProgressAndEmitsEffect() {
+        val update = reducer.update(
+            state = SettingsState(isClearingNewsCache = true),
+            msg = SettingsMsg.NewsCacheCleared
+        )
+
+        assertEquals(false, update.state.isClearingNewsCache)
+        assertEquals(emptyList<SettingsCommand>(), update.commands)
+        assertEquals(listOf(SettingsEffect.NewsCacheCleared), update.effects)
+    }
 }

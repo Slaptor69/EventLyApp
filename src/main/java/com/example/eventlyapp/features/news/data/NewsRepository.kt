@@ -66,9 +66,7 @@ class NewsRepository @Inject constructor(
                 updatedAtMillis = System.currentTimeMillis()
             )
 
-            withContext(Dispatchers.IO) {
-                metadataCacheService.replaceArticles(snapshot)
-            }
+            metadataCacheService.replaceArticles(snapshot)
             imageCacheService.clearUnusedImages(articles.mapNotNull { article -> article.imagePath }.toSet())
             remoteDataSource.sendDebugRequest(articles.size)
             snapshot

@@ -1,44 +1,44 @@
-# ADR 0001: Feature-first ELM architecture
+# ADR 0001: Feature-first ELM-архитектура
 
-## Status
+## Статус
 
-Accepted.
+Принято.
 
-## Context
+## Контекст
 
-The app contains several user-facing areas: app navigation, news, tasks, notes, settings, calendar, and the home summary. Keeping all screens, state changes, models, and networking in a flat `ui`, `model`, and `data` structure makes the project harder to verify and extend. The final coursework criteria also require separated modules/components, clear responsibility boundaries, and testable business logic.
+В приложении есть несколько пользовательских областей: навигация приложения, новости, задачи, записи, настройки, календарь и сводка на главном экране. Если держать все экраны, изменения состояния, модели и сетевой код в плоской структуре `ui`, `model` и `data`, проект становится сложнее проверять и расширять. Финальные критерии курсовой также требуют разделения модулей/компонентов, понятных границ ответственности и тестируемой бизнес-логики.
 
-The UI must stay simple: it should render state and send user intent upward. Business state transitions should be deterministic and testable without Android UI.
+UI должен оставаться простым: он отображает состояние и отправляет пользовательские намерения наверх. Изменения бизнес-состояния должны быть детерминированными и тестируемыми без Android UI.
 
-## Decision
+## Решение
 
-Use a feature-first package structure:
+Использовать feature-first структуру пакетов:
 
-- `core`: reusable primitives such as ids and network interfaces.
-- `features/<feature>/domain`: pure feature models and business rules.
-- `features/<feature>/data`: repositories, cache, remote data sources.
-- `features/<feature>/presentation`: Compose screens and ViewModels.
-- `di`: Dagger graph assembly.
+- `core`: переиспользуемые примитивы, например id и сетевые интерфейсы.
+- `features/<feature>/domain`: чистые модели фичи и бизнес-правила.
+- `features/<feature>/data`: репозитории, кэш, remote data sources.
+- `features/<feature>/presentation`: Compose-экраны и ViewModel.
+- `di`: сборка Dagger-графа.
 
-The presentation layer follows an Elm-style architecture:
+Presentation-слой следует Elm-style архитектуре:
 
-- `State` / `Model`: immutable data classes that fully describe the current feature state.
-- `Msg`: sealed user/system messages that describe what happened.
-- `Reducer` / `Update`: pure functions that transform `State + Msg` into a new `State`.
-- `Command`: side-effect requests created by reducers and executed by ViewModels.
-- `Effect`: one-shot outputs for UI reactions such as refresh errors or applied settings.
-- `ViewModel`: thin Elm runtime that owns `StateFlow`, accepts messages, executes commands, and publishes effects.
+- `State` / `Model`: immutable data class, который полностью описывает текущее состояние фичи.
+- `Msg`: sealed-сообщения пользователя или системы, которые описывают, что произошло.
+- `Reducer` / `Update`: чистая функция, которая превращает `State + Msg` в новый `State`.
+- `Command`: запросы на side effect, которые создаются reducer-ами и исполняются ViewModel.
+- `Effect`: одноразовые выходные события для UI-реакций, например ошибка refresh или примененная настройка.
+- `ViewModel`: тонкий Elm runtime, который хранит `StateFlow`, принимает сообщения, исполняет команды и публикует эффекты.
 
-The current Elm slices are:
+Текущие Elm-срезы:
 
-- `features/app/domain`: app navigation state, selected tab, edited task/note, planner messages, planner commands, and reducers.
-- `features/news/domain`: news feed state transitions, cache loading commands, refresh commands, auto-refresh command, and refresh-error effects.
-- `features/settings/domain`: theme selection message, persistence command, and theme-applied effect.
+- `features/app/domain`: состояние навигации приложения, выбранная вкладка, редактируемая задача/запись, planner messages, planner commands и reducers.
+- `features/news/domain`: переходы состояния ленты новостей, команды загрузки кэша, команды refresh, команда auto-refresh и эффекты ошибок refresh.
+- `features/settings/domain`: сообщение выбора темы, команда сохранения, состояние подтверждения очистки кэша, команда очистки кэша и snackbar effects.
 
-Compose screens keep only local form/dialog state. Persistent screen state, navigation state, and business actions live in Elm reducers and ViewModels. Reducers are covered by local JVM tests.
+Compose-экраны отображают state и могут локально хранить короткоживущий ввод формы. Постоянное состояние экрана, состояние навигации, состояние подтверждения бизнес-действий и мутации живут в Elm reducers и ViewModels. Reducer-ы покрыты локальными JVM-тестами.
 
-## Consequences
+## Итоги
 
-The app is easier to grow feature by feature. Dependencies are assembled in one Dagger graph instead of being created inside composables. UI code no longer owns task, note, settings, news, or navigation mutations, so those rules can be tested without Android UI.
+Приложение проще развивать по фичам. Зависимости собираются в одном Dagger-графе, а не создаются внутри composable-функций. UI-код больше не владеет мутациями задач, записей, настроек, новостей или навигации, поэтому эти правила можно тестировать без Android UI.
 
-Side effects are visible in the architecture. For example, adding a task first emits `PlannerCommand.GenerateTaskId`; loading news emits `NewsCommand.LoadCachedNews` and `NewsCommand.RefreshNews`; selecting a theme emits `SettingsCommand.SaveThemePreference`.
+Side effects явно видны в архитектуре. Например, добавление задачи сначала создает `PlannerCommand.GenerateTaskId`; загрузка новостей создает `NewsCommand.LoadCachedNews` и `NewsCommand.RefreshNews`; выбор темы создает `SettingsCommand.SaveThemePreference`; очистка кэша новостей создает `SettingsCommand.ClearNewsCache`.

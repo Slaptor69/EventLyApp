@@ -17,6 +17,28 @@ class SettingsReducer @Inject constructor() {
                 commands = listOf(SettingsCommand.SaveThemePreference(msg.themePreference)),
                 effects = listOf(SettingsEffect.ThemeApplied(msg.themePreference))
             )
+            SettingsMsg.ClearNewsCacheClicked -> state.copy(
+                showClearNewsCacheDialog = true
+            ).toElmUpdate()
+            SettingsMsg.ClearNewsCacheDismissed -> state.copy(
+                showClearNewsCacheDialog = false
+            ).toElmUpdate()
+            SettingsMsg.ClearNewsCacheConfirmed -> state.copy(
+                showClearNewsCacheDialog = false,
+                isClearingNewsCache = true
+            ).toElmUpdate(
+                commands = listOf(SettingsCommand.ClearNewsCache)
+            )
+            SettingsMsg.NewsCacheCleared -> state.copy(
+                isClearingNewsCache = false
+            ).toElmUpdate(
+                effects = listOf(SettingsEffect.NewsCacheCleared)
+            )
+            is SettingsMsg.NewsCacheClearFailed -> state.copy(
+                isClearingNewsCache = false
+            ).toElmUpdate(
+                effects = listOf(SettingsEffect.NewsCacheClearFailed(msg.message))
+            )
         }
     }
 }

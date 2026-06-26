@@ -7,6 +7,8 @@ import com.example.eventlyapp.BuildConfig
 import com.example.eventlyapp.EventlyApplication
 import com.example.eventlyapp.features.app.data.local.PlannerDao
 import com.example.eventlyapp.features.app.data.local.PlannerDatabase
+import com.example.eventlyapp.features.news.data.cache.NewsCacheDao
+import com.example.eventlyapp.features.news.data.cache.NewsCacheDatabase
 import dagger.Module
 import dagger.Provides
 import javax.inject.Named
@@ -40,6 +42,22 @@ object AppModule {
     @Singleton
     fun providePlannerDao(database: PlannerDatabase): PlannerDao {
         return database.plannerDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideNewsCacheDatabase(context: Context): NewsCacheDatabase {
+        return Room.databaseBuilder(
+            context,
+            NewsCacheDatabase::class.java,
+            "evently_news_cache.db"
+        ).fallbackToDestructiveMigration(dropAllTables = true).build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideNewsCacheDao(database: NewsCacheDatabase): NewsCacheDao {
+        return database.newsCacheDao()
     }
 
     @Provides

@@ -11,7 +11,7 @@
 - календарь задач;
 - настройки темы;
 - локальное сохранение задач/записей через Room;
-- кэш новостей через SQLite и файловый кэш изображений.
+- кэш новостей через Room и файловый кэш изображений.
 
 Проект сделан в feature-first структуре и использует ELM-style архитектуру: экран отправляет сообщения, reducer чисто пересчитывает состояние, а side effects выполняются через команды во ViewModel-runtime.
 
@@ -31,7 +31,7 @@
 | Gson converter | Retrofit DTO | парсинг JSON |
 | Coil | `NewsFeedScreen` | загрузка/показ локальных изображений новостей |
 | Room | `features/app/data/local` | сохранение задач, подзадач и записей |
-| SQLiteOpenHelper | `features/news/data/cache` | простой кэш метаданных новостей |
+| Room | `features/news/data/cache` | локальный кэш метаданных новостей |
 | SharedPreferences | `features/settings/data` | сохранение выбранной темы |
 | Dagger 2 | `di` | Dependency Injection graph |
 | JUnit | `src/test` | unit-тесты reducer/domain/core |
@@ -72,7 +72,7 @@ ui/theme/
 - `core` - общие примитивы, которые не принадлежат конкретной фиче.
 - `di` - сборка зависимостей Dagger.
 - `features/<feature>/domain` - состояние, сообщения, команды, reducer, бизнес-модели.
-- `features/<feature>/data` - Room/SQLite/Retrofit/repository/cache.
+- `features/<feature>/data` - Room/Retrofit/repository/cache.
 - `features/<feature>/presentation` - Compose UI и ViewModel-runtime.
 - `ui/theme` - цвета, типографика, Compose-тема.
 
@@ -708,7 +708,7 @@ Debug request не критичен: он обёрнут в `runCatching`, по�
 
 `loadCachedNews`:
 
-1. читает SQLite-кэш метаданных;
+1. читает Room-кэш метаданных;
 2. проверяет TTL 24 часа;
 3. если кэш старый, чистит metadata cache и image cache;
 4. возвращает `CachedNewsSnapshot`.
@@ -749,11 +749,19 @@ Debug request не критичен: он обёрнут в `runCatching`, по�
 features/news/data/cache
 ```
 
-`NewsCacheDatabaseHelper` - SQLiteOpenHelper для таблицы `news_cache`.
+`NewsCacheDatabase` - Room database для таблицы `news_cache`.
+
+`NewsCacheDao`:
+
+- читает статьи из Room;
+- заменяет весь набор статей;
+- очищает таблицу metadata cache.
+
+`NewsCacheEntity` - Room entity для одной новости в кэше. Хранит metadata и путь к картинке, но не сам файл изображения.
 
 `NewsMetadataCacheService`:
 
-- читает список новостей из SQLite;
+- читает список новостей из Room;
 - заменяет snapshot новыми новостями;
 - чистит metadata cache.
 
@@ -762,7 +770,8 @@ features/news/data/cache
 - скачивает картинку по URL;
 - сохраняет файл в cache directory приложения;
 - возвращает локальный путь;
-- чистит неиспользуемые файлы.
+- чистит неиспользуемые файлы;
+- очищает весь файловый кэш изображений при команде из настроек.
 
 `CachedNewsSnapshot`:
 
@@ -866,10 +875,12 @@ features/settings/presentation
 
 ### 11.1. SettingsState
 
-Хранит выбранную тему:
+Хранит выбранную тему и UI-состояние confirmation dialog для очистки кэша новостей:
 
 ```kotlin
 val themePreference: ThemePreference
+val showClearNewsCacheDialog: Boolean
+val isClearingNewsCache: Boolean
 ```
 
 ### 11.2. ThemePreference
@@ -885,15 +896,26 @@ Enum:
 
 `SettingsMsg.ThemeSelected` - пользователь выбрал тему.
 
+`SettingsMsg.ClearNewsCacheClicked` - пользователь нажал пункт очистки кэша.
+
+`SettingsMsg.ClearNewsCacheConfirmed` - пользователь подтвердил удаление.
+
+`SettingsMsg.NewsCacheCleared` / `NewsCacheClearFailed` - результат выполнения команды.
+
 `SettingsCommand.SaveThemePreference` - сохранить тему.
 
+`SettingsCommand.ClearNewsCache` - очистить Room-кэш metadata новостей и файловый кэш изображений.
+
 `SettingsEffect.ThemeApplied` - одноразовый эффект, что тема применена.
+
+`SettingsEffect.NewsCacheCleared` / `NewsCacheClearFailed` - одноразовый эффект для snackbar.
 
 `SettingsReducer`:
 
 - обновляет `SettingsState`;
-- возвращает команду сохранения;
-- возвращает effect.
+- возвращает команду сохранения темы;
+- показывает и скрывает confirmation dialog очистки кэша;
+- возвращает command очистки кэша и effect результата.
 
 ### 11.4. SettingsRepository
 
@@ -911,6 +933,8 @@ evently_settings
 theme_preference
 ```
 
+Кроме темы, repository очищает кэш новостей через `NewsMetadataCacheService.clearAll()` и `NewsImageCacheService.clearAllImages()`.
+
 ### 11.5. SettingsViewModel
 
 ELM runtime для настроек:
@@ -918,15 +942,19 @@ ELM runtime для настроек:
 - читает тему из repository при создании;
 - принимает `SettingsMsg`;
 - вызывает `SettingsReducer`;
-- исполняет `SaveThemePreference`.
+- исполняет `SaveThemePreference`;
+- исполняет `ClearNewsCache` и возвращает результат в reducer как `SettingsMsg.NewsCacheCleared` или `SettingsMsg.NewsCacheClearFailed`.
 
 ### 11.6. SettingsScreen
 
-Показывает настройки. Сейчас есть пункт:
+Показывает настройки. Сейчас есть пункты:
 
 - `Тема`.
+- `Кэш новостей`.
 
 При нажатии открывается `AlertDialog` выбора темы. Выбранная тема отмечается галочкой.
+
+Для кэша новостей открывается confirmation dialog `Очистить кэш новостей?`. Подтверждение выполняется красной кнопкой `Удалить`, отмена - серой кнопкой `Отмена`. После выполнения показывается snackbar.
 
 ## 12. Home feature
 
@@ -1159,7 +1187,7 @@ suspend fun upsertTask(...)
 12. DTO маппится в `RemoteNewsArticle`.
 13. `NewsRepository` маппит это в `NewsArticleData`.
 14. Изображения сохраняются в file cache.
-15. Метаданные сохраняются в SQLite cache.
+15. Метаданные сохраняются в Room cache.
 16. Успех возвращается как `NewsMsg.RefreshSucceeded`.
 17. `NewsReducer` обновляет `NewsFeedState`.
 18. `NewsFeedScreen` получает новый state через `collectAsState` и перерисовывается.
@@ -1284,7 +1312,7 @@ PlannerCommand.SaveTask(updatedTask)
 
 - задачи/записи - Room `evently_planner.db`;
 - тема - SharedPreferences `evently_settings`;
-- кэш новостей - SQLite `evently_news_cache.db`;
+- кэш metadata новостей - Room database `evently_news_cache.db`;
 - изображения новостей - app cache directory.
 
 ### 21.4. Remote storage
@@ -1306,7 +1334,7 @@ src/test/java
 - `PlannerReducerTest` - ELM planner flow, команды сохранения, сортировки, подзадачи, дедлайны;
 - `AppReducerTest` - навигационный state и возврат на вкладку;
 - `NewsReducerTest` - команды загрузки кэша, refresh, error effects;
-- `SettingsReducerTest` - выбор темы, команда сохранения, effect;
+- `SettingsReducerTest` - выбор темы, команда сохранения, dialog и команда очистки кэша новостей, effect;
 - `TaskDeadlineTest` - парсинг дедлайнов и защита от битой даты;
 - `NewsErrorMessageMapperTest` - понятные ошибки для пользователя;
 - `ThemePreferenceTest` - чтение темы из storage key;
@@ -1404,7 +1432,11 @@ ADR нужны для критерия "все решения обоснован
 
 Про новости:
 
-> Новости работают через Retrofit с NYTimes Top Stories API. При старте сначала читается локальный SQLite-кэш, затем запускается сетевое обновление. Метаданные новостей хранятся в SQLite через SQLiteOpenHelper, изображения сохраняются в файловый кэш. Ошибки сети маппятся в понятные пользовательские сообщения.
+> Новости работают через Retrofit с NYTimes Top Stories API. При старте сначала читается локальный Room-кэш, затем запускается сетевое обновление. Метаданные новостей хранятся в Room, изображения сохраняются в файловый кэш. Ошибки сети маппятся в понятные пользовательские сообщения.
+
+Про настройки:
+
+> Настройки работают как отдельная ELM-фича. Выбор темы сохраняется в SharedPreferences. Очистка кэша новостей проходит через SettingsMsg, SettingsReducer, SettingsCommand.ClearNewsCache и SettingsRepository, который удаляет metadata cache и image cache. UI только показывает пункт настроек, confirmation dialog и snackbar результата.
 
 Про задачи/записи:
 

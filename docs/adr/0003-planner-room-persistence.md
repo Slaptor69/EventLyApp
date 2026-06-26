@@ -1,24 +1,24 @@
-# ADR 0003: Planner Room Persistence
+# ADR 0003: Сохранение планера через Room
 
-## Status
+## Статус
 
-Accepted.
+Принято.
 
-## Context
+## Контекст
 
-Tasks and notes were previously stored only in `PlannerViewModel` memory. This survives many configuration changes, but does not survive a full process death, app restart, or device reboot. The app needs local persistence while preserving the Elm-style architecture.
+Раньше задачи и записи хранились только в памяти `PlannerViewModel`. Это переживает многие configuration changes, но не переживает полное уничтожение процесса, перезапуск приложения или перезагрузку устройства. Приложению нужно локальное сохранение данных без нарушения Elm-style архитектуры.
 
-## Decision
+## Решение
 
-Use Room as the local persistence layer for planner data:
+Использовать Room как локальный слой сохранения данных планера:
 
-- `PlannerDatabase`: Room database for tasks, subtasks, and notes.
-- `PlannerDao`: local database access.
-- `PlannerRepository`: maps Room entities to domain models and exposes planner persistence operations.
-- `PlannerCommand`: side-effect requests such as `LoadPlannerSnapshot`, `SaveTask`, `DeleteTask`, `SaveNote`, and `DeleteNote`.
+- `PlannerDatabase`: Room database для задач, подзадач и записей.
+- `PlannerDao`: локальный доступ к базе данных.
+- `PlannerRepository`: переводит Room entities в domain models и предоставляет операции сохранения планера.
+- `PlannerCommand`: запросы на side effect, например `LoadPlannerSnapshot`, `SaveTask`, `DeleteTask`, `SaveNote` и `DeleteNote`.
 
-Reducers stay pure. They never call Room directly. They only return commands. `PlannerViewModel` acts as the Elm runtime: it executes persistence commands through `PlannerRepository` and sends loaded data back into the reducer with `PlannerMsg.SnapshotLoaded`.
+Reducer-ы остаются чистыми. Они никогда не вызывают Room напрямую, а только возвращают команды. `PlannerViewModel` работает как Elm runtime: исполняет persistence-команды через `PlannerRepository` и отправляет загруженные данные обратно в reducer через `PlannerMsg.SnapshotLoaded`.
 
-## Consequences
+## Итоги
 
-Tasks and notes are restored when the app starts again after process death or a normal app restart. ELM boundaries stay intact because database work remains outside reducers and UI composables.
+Задачи и записи восстанавливаются после уничтожения процесса или обычного перезапуска приложения. ELM-границы сохраняются, потому что работа с базой остается вне reducer-ов и UI composable-функций.

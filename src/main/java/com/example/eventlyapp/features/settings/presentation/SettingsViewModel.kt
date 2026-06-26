@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 class SettingsViewModel(
@@ -38,6 +40,21 @@ class SettingsViewModel(
         when (command) {
             is SettingsCommand.SaveThemePreference -> {
                 repository.saveThemePreference(command.themePreference)
+            }
+            SettingsCommand.ClearNewsCache -> {
+                viewModelScope.launch {
+                    runCatching {
+                        repository.clearNewsCache()
+                    }.onSuccess {
+                        accept(SettingsMsg.NewsCacheCleared)
+                    }.onFailure { throwable ->
+                        accept(
+                            SettingsMsg.NewsCacheClearFailed(
+                                throwable.message ?: "Не удалось очистить кэш новостей"
+                            )
+                        )
+                    }
+                }
             }
         }
     }

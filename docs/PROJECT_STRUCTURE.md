@@ -18,7 +18,7 @@ com.example.eventlyapp
 
 ```text
 domain       - состояние, сообщения, команды, reducer, бизнес-модели
-data         - repository, Room, SQLite, network/cache mapping
+data         - repository, Room, network/cache mapping
 presentation - Compose UI и ViewModel
 ```
 
@@ -422,13 +422,21 @@ Remote data source. Делает запрос к NYTimes через `NytTopStori
 
 Data-модель снимка новостей в локальном кэше.
 
-### `features/news/data/cache/NewsCacheDatabaseHelper`
+### `features/news/data/cache/NewsCacheDatabase`
 
-SQLiteOpenHelper для кэша метаданных новостей.
+Room database для кэша метаданных новостей.
+
+### `features/news/data/cache/NewsCacheDao`
+
+DAO для чтения, замены и очистки метаданных новостей.
+
+### `features/news/data/cache/NewsCacheEntity`
+
+Room entity таблицы `news_cache`. Хранит metadata статьи и `imagePath`, но не сами изображения.
 
 ### `features/news/data/cache/NewsMetadataCacheService`
 
-Сервис чтения/записи метаданных новостей в SQLite-кэш.
+Сервис чтения/записи метаданных новостей через Room.
 
 ### `features/news/data/cache/NewsImageCacheService`
 
@@ -450,31 +458,31 @@ Enum выбранной темы:
 
 ### `features/settings/domain/model/SettingsState`
 
-Состояние настроек. Сейчас хранит выбранную тему.
+Состояние настроек. Хранит выбранную тему, флаг диалога очистки кэша новостей и признак выполняющейся очистки.
 
 ### `features/settings/domain/SettingsMsg`
 
-Сообщения настроек. Сейчас есть выбор темы.
+Сообщения настроек. Есть выбор темы и поток очистки кэша новостей: клик, отмена, подтверждение, успешный или неуспешный результат.
 
 ### `features/settings/domain/SettingsCommand`
 
-Команды настроек. Сейчас есть сохранение темы в persistent storage.
+Команды настроек. Есть сохранение темы в persistent storage и очистка кэша новостей.
 
 ### `features/settings/domain/SettingsEffect`
 
-Одноразовые эффекты настроек. Сейчас есть эффект применения темы.
+Одноразовые эффекты настроек: применение темы, успешная очистка кэша новостей и ошибка очистки.
 
 ### `features/settings/domain/SettingsReducer`
 
-Чистая логика настроек. При выборе темы меняет state, возвращает команду сохранения и effect применения.
+Чистая логика настроек. При выборе темы меняет state, возвращает команду сохранения и effect применения. При очистке кэша показывает confirmation dialog, после подтверждения возвращает command очистки и effect результата.
 
 ### `features/settings/data/SettingsRepository`
 
-Работает с `SharedPreferences`: читает и сохраняет выбранную тему.
+Работает с `SharedPreferences`: читает и сохраняет выбранную тему. Также через news cache services очищает Room-кэш метаданных новостей и файловый кэш изображений.
 
 ### `features/settings/presentation/SettingsViewModel`
 
-ELM runtime настроек. При создании читает тему из repository, принимает `SettingsMsg`, вызывает reducer, сохраняет тему через command.
+ELM runtime настроек. При создании читает тему из repository, принимает `SettingsMsg`, вызывает reducer, сохраняет тему и очищает кэш новостей через commands.
 
 ### `features/settings/presentation/SettingsViewModelFactory`
 
@@ -482,7 +490,7 @@ ELM runtime настроек. При создании читает тему из
 
 ### `features/settings/presentation/SettingsScreen`
 
-Compose-экран настроек. Показывает пункт выбора темы и dialog с вариантами.
+Compose-экран настроек. Показывает пункт выбора темы, пункт очистки кэша новостей, confirmation dialog и snackbar результата.
 
 ## 11. `features/home`
 
@@ -566,6 +574,10 @@ UI-тест выбора темы в настройках.
 
 ADR - это короткие записи архитектурных решений.
 
+### `docs/NAVIGATION_AND_PRINCIPLES.md`
+
+Отдельный документ для защиты: где находится навигация, как работает `AppState`/`AppReducer`/`EventlyAppRoot`, и где в коде видны SOLID, KISS и DRY.
+
 ### `0001-feature-first-elm-architecture.md`
 
 Объясняет, почему проект использует feature-first структуру и ELM-подход.
@@ -577,6 +589,18 @@ ADR - это короткие записи архитектурных решен
 ### `0003-planner-room-persistence.md`
 
 Объясняет, почему задачи и заметки сохраняются через Room и как это сочетается с ELM.
+
+### `0004-app-state-navigation.md`
+
+Объясняет, почему навигация сделана через `AppState`, `AppMsg`, `AppReducer` и `EventlyAppRoot`, а не через отдельный navigation graph.
+
+### `0005-settings-news-cache-cleanup.md`
+
+Объясняет ручную очистку кэша новостей из настроек через ELM command и confirmation dialog.
+
+### `0006-single-viewmodel-factory.md`
+
+Объясняет общий `SingleViewModelFactory` как DRY-решение для простых ViewModel factories.
 
 ## 16. Самые важные потоки для защиты
 
@@ -637,6 +661,20 @@ SettingsScreen
   -> SettingsRepository / SharedPreferences
   -> SettingsEffect.ThemeApplied
   -> Theme redraws
+```
+
+### Очистка кэша новостей
+
+```text
+SettingsScreen
+  -> SettingsMsg.ClearNewsCacheClicked
+  -> SettingsReducer shows confirmation dialog
+  -> SettingsMsg.ClearNewsCacheConfirmed
+  -> SettingsCommand.ClearNewsCache
+  -> SettingsRepository clears Room metadata and image files
+  -> SettingsMsg.NewsCacheCleared
+  -> SettingsEffect.NewsCacheCleared
+  -> snackbar
 ```
 
 ## 17. Что можно сказать коротко
